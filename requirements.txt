@@ -1,0 +1,10 @@
+python
+numpy
+pandas
+scipy
+sklearn
+glob
+pathlib
+openpyxl
+matplotlib
+absl
