@@ -1,0 +1,17 @@
+name: burbank_local
+channels: 
+    - defaults
+dependencies:
+    - python
+    - pip:
+        - numpy 
+        - pandas 
+        - requests
+        - seaborn
+        - scipy
+        - scikit-learn
+        - statsmodels
+        - pathlib
+        - openpyxl 
+        - matplotlib
+        - absl-py==2.1.0

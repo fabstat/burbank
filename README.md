@@ -44,10 +44,15 @@ For more information regarding the dataset and analyses, please read our paper.
 
 ## Running the Example
 
-Required packages are listed in the file 'requirements.txt'. The python files have documentation.
+Required packages are listed in the file 'requirements.yml'. The python files have documentation. Create a new conda environment:
+
+`conda env create -f requirements.yml`
 
 For preparing the data, `cd` into the 'burbank' directory and run:
 `python -m example --action='prepare'`
 
-For training and testing on the prepared dataset, `cd` into the 'burbank' directory and run:
+For training and testing on the prepared dataset run:
+`python -m example --action='train'`
+
+For predictions on the prepared dataset run:
 `python -m example --action='predict'`

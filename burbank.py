@@ -7,6 +7,7 @@ preprocessed data of Russet potato trials.
 
 # basic data packages
 import os
+from joblib import dump, load
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -47,6 +48,38 @@ from scipy import stats
 from scipy.stats import spearmanr
 from scipy.cluster import hierarchy
 from scipy.spatial.distance import squareform
+
+
+def predict(preprocessed_input, model_file_path, output_path):
+    loaded_model = load(model_file_path)
+        
+    # dropping colums with over max_na_col NaNs
+    new_data = preprocessed_input.set_index(["Clone", "Year"])
+    # define categorical variables
+    new_data[["Trial Region"]] = new_data[["Trial Region"]].astype("category")
+    # Here X_test is data to predict and y_test is the prediction
+    
+    y_pred = loaded_model.predict(new_data)
+    
+    
+    # If SVC, get probabilities
+    # Warning: likely to disagree with predictions on small datasets
+    if "svc" in model_file_path:
+        y_probs = loaded_model.predict_proba(new_data) 
+    
+
+    # Make results dataframe, save it and return it
+    clones = list([i[0] for i in new_data.index])
+    res = {}
+    if "svc" in model_file_path:
+        res = pd.DataFrame({"Clone": clones, "Trial Region": new_data['Trial Region'].to_list(), "pred": y_pred, "prob of 0": y_probs.T[0], "prob of 1": y_probs.T[1]})
+    else: 
+        res = pd.DataFrame({"Clone": clones, "Trial Region": new_data['Trial Region'].to_list(), "pred": y_pred})
+    
+    res.to_csv(os.path.join(output_path, "predictions.csv"))
+    print(f"Results dataframe saved to {output_path} as predictions.csv")
+    
+    return res
 
 
 def feature_correlation_plot(X, output_path):
@@ -166,14 +199,14 @@ def cc_ci(r, n, alpha=0.5):
 
 
 
-def learner(df, output_path, new_data=None, region='all', max_na_col=1129, impute='n', model='svc'):
+def learner(df, output_path, region='all', max_na_col=800, impute='n', model='svc'):
     df = df.set_index(["Clone", "Year"])
     # define categorical variables
     df[["Trial Region"]] = df[["Trial Region"]].astype("category")
     # dropping colums with over max_na_col NaNs
     sub_df = df.dropna(axis="columns", thresh=df.shape[0]-max_na_col)
-    
     X = sub_df.drop('Keep', axis=1)
+
     X = X[(X['true_keeps'] == 0) | (X['true_keeps'] == 1)]
     if region == 'ONT':
         X = X[X["Trial Region"] == 'ONT'].drop(["Trial Region"], axis=1)
@@ -190,10 +223,10 @@ def learner(df, output_path, new_data=None, region='all', max_na_col=1129, imput
     #else:
         #X = X.drop(["Trial Region"], axis=1)
         
-    # Feature correlation
-    if region == 'all' and spearmanr(X).correlation is not np.nan:
-        DM = X.drop(["true_keeps"], axis=1).dropna()
-        feature_correlation_plot(DM, output_path)
+    # Feature correlation: Needs bug fix
+    # if region == 'all' and spearmanr(X).correlation is not np.nan:
+    #     DM = X.drop(["true_keeps"], axis=1).dropna()
+    #     feature_correlation_plot(DM, output_path)
             
     # scoring function
     mcc = make_scorer(matthews_corrcoef) 
@@ -233,14 +266,8 @@ def learner(df, output_path, new_data=None, region='all', max_na_col=1129, imput
         y = X["true_keeps"] # response
         X = X.drop(["true_keeps"], axis=1)
         
-        # if new data is not provided, make a train/test dataset
-        if new_data == None:
-            # uncontaminated split 70/30
-            X_train, X_test, y_train, y_test = train_test_split(
+        X_train, X_test, y_train, y_test = train_test_split(
                 X, y, test_size=0.3, random_state=0)
-        else:
-            X_train = X
-            y_train = y
         
         # Normalize numeric data and encode categorical data
         cat_feats = X_train.select_dtypes(include="category").columns
@@ -280,14 +307,8 @@ def learner(df, output_path, new_data=None, region='all', max_na_col=1129, imput
         y = X["true_keeps"] # response
         X = X.drop(["true_keeps"], axis=1)
         
-        # if new data is not provided, make a train/test dataset
-        if new_data == None:
-            # uncontaminated split 70/30
-            X_train, X_test, y_train, y_test = train_test_split(
+        X_train, X_test, y_train, y_test = train_test_split(
                 X, y, test_size=0.3, random_state=0)
-        else:
-            X_train = X
-            y_train = y
         
         # Normalize numeric data and encode categorical data
         cat_feats = X_train.select_dtypes(include="category").columns
@@ -297,7 +318,7 @@ def learner(df, output_path, new_data=None, region='all', max_na_col=1129, imput
                 ("num", StandardScaler(), num_feats),
                 (
                     "cat",
-                    OneHotEncoder(handle_unknown="ignore", sparse=False),
+                    OneHotEncoder(handle_unknown="ignore", sparse_output=False),
                     cat_feats,
                 ),
             ],
@@ -322,17 +343,6 @@ def learner(df, output_path, new_data=None, region='all', max_na_col=1129, imput
         best_pipe = make_pipeline(preprocessor, imp, sfs, clf_best) 
         best_pipe.fit(X_train, y_train)
         #print(best_pipe[:-1].get_feature_names_out())
-
-
-    # Test the classifier and get the prediction
-    if new_data != None:
-        # dropping colums with over max_na_col NaNs
-        new_data = new_data.set_index(["Clone", "Year"])
-        # define categorical variables
-        new_data[["Trial Region"]] = new_data[["Trial Region"]].astype("category")
-        # Here X_test is data to predict and y_test is the prediction
-        X_test = new_data[list(X_train.columns)]
-        y_test = best_pipe.predict(X_test)
     
     
     # Print classification reports and scores
@@ -340,6 +350,10 @@ def learner(df, output_path, new_data=None, region='all', max_na_col=1129, imput
     
     # Predicted y values from test data or new data
     y_pred = best_pipe.predict(X_test)
+    
+    # Save the model
+    filename = f"./model/{model}.pkl"
+    dump(best_pipe, filename) 
     
     # If SVC, get probabilities
     # Warning: likely to disagree with predictions on small datasets
